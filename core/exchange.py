@@ -96,6 +96,21 @@ class Exchange:
         }
         return intervals.get(interval, 300)
 
+    def _format_klines_indodax_public(self, data):
+        klines = []
+        if not data or 'data' not in data:
+            return klines
+        for item in data['data']:
+            klines.append({
+                'open_time': int(item[0]),
+                'open': float(item[1]),
+                'high': float(item[2]),
+                'low': float(item[3]),
+                'close': float(item[4]),
+                'volume': float(item[5])
+            })
+        return klines
+
     def _format_klines_indodax(self, data, interval):
         if 'data' not in data:
             return []
