@@ -1,0 +1,728 @@
+================================================================================
+          PRIVATE TRADING BOT KAMSIADI.Inc v1.0.0 - DOKUMENTASI FITUR LENGKAP
+================================================================================
+
+Daftar Isi:
+1. Integrasi Exchange & API
+2. Auto Scan Pair IDR
+3. Strategi Inti (Tiruan Koala EA MT5)
+4. Mode Trading
+5. Daily Drawdown Limit
+6. Manajemen Modal (Auto Lot)
+7. Portability & Build
+8. Backtesting
+9. Notifikasi Telegram
+10. Branding & Identitas
+11. Antarmuka Grafis (GUI)
+12. File yang Dihasilkan Saat Jalan
+13. Dependencies
+14. Cara Penggunaan
+
+================================================================================
+1. INTEGRASI EXCHANGE & API
+================================================================================
+
+Exchange yang didukung:
+  - Indodax (prioritas utama)    : https://indodax.com
+  - Tokocrypto (opsional kedua)  : https://api.tokocrypto.com
+  Pilihan exchange diatur di config.json -> exchange.name
+
+Public API (tanpa API Key, untuk scan harga):
+  - get_tickers()
+    Mengambil harga terkini seluruh pair yang tersedia di exchange.
+
+  - get_klines(symbol, interval, limit)
+    Mengambil data candlestick OHLCV (Open, High, Low, Close, Volume)
+    untuk timeframe tertentu (M1, M5, M15, M30, H1, H4, D1).
+    Default limit: 200 candle.
+
+Private API (butuh API Key + Secret dengan izin Trade dan Read):
+
+  - get_balance()
+    Mengembalikan dictionary semua saldo (IDR, BTC, ETH, dll).
+    Hanya menampilkan saldo > 0.
+
+  - get_idr_balance()
+    Mengembalikan saldo IDR saja (float).
+
+  - market_buy(symbol, quantity)
+    Membeli secara market order dengan jumlah quantity (dalam unit coin).
+    Indodax: parameter 'idr' (nilai beli dalam Rupiah).
+    Tokocrypto: parameter 'quantity' (jumlah coin).
+
+  - market_sell(symbol, quantity)
+    Menjual secara market order dengan jumlah quantity (dalam unit coin).
+    Indodax: parameter 'coin' (jumlah coin).
+    Tokocrypto: parameter 'quantity' (jumlah coin).
+
+  - limit_buy(symbol, quantity, price)
+    Membeli secara limit order pada harga tertentu.
+
+  - limit_sell(symbol, quantity, price)
+    Menjual secara limit order pada harga tertentu.
+
+  - get_open_orders(symbol=None)
+    Mengembalikan daftar semua order yang masih terbuka/pending.
+    Bisa difilter per pair atau semua pair.
+
+  - cancel_order(order_id, symbol)
+    Membatalkan order berdasarkan order_id.
+
+  - get_order_status(order_id, symbol)
+    Mengecek status order (open, closed, canceled).
+
+Keamanan API:
+  - Autentikasi menggunakan HMAC SHA-512 signature
+  - Timestamp diikutsertakan di setiap request
+  - Bot wajib menolak koneksi jika API Key tidak punya izin baca saldo
+  - API Key HANYA boleh punya izin Trade dan Read, BUKAN Withdraw
+
+Autentikasi per exchange:
+  - Indodax  : parameter 'sign' (HMAC SHA-512 dari query string)
+  - Tokocrypto: header 'X-MBX-APIKEY' + parameter 'signature'
+
+Format pair:
+  - Indodax  : btc_idr, eth_idr, xrp_idr (underscore, huruf kecil)
+  - Tokocrypto: BTCIDR, ETHIDR (tanpa separator, huruf besar)
+
+================================================================================
+2. AUTO SCAN PAIR IDR
+================================================================================
+
+Saat bot pertama kali jalan atau di-refresh:
+  1. Memanggil API Public untuk mengambil semua ticker
+  2. Memfilter hanya pair yang berakhiran _idr (Indodax) atau /IDR (Tokocrypto)
+  3. Menampilkan daftar pair IDR di console/GUI beserta harga terakhirnya
+
+Configurable Pairs (config.json -> trading_pairs):
+  - User bisa tentukan pair aktif yang ingin ditradingkan
+  - Contoh: ["btc_idr", "eth_idr", "xrp_idr"]
+  - Jika daftar kosong [] -> bot otomatis mengambil SEMUA pair IDR tersedia
+
+Rescan Otomatis:
+  - Dilakukan setiap kali bot di-restart
+  - Dilakukan setiap 24 jam untuk mendeteksi pair baru yang listing
+
+Manual Refresh:
+  - Tombol REFRESH di dashboard untuk scan pair + update saldo secara manual
+
+================================================================================
+3. STRATEGI INTI (TIRUAN KOALA EA MT5)
+================================================================================
+
+Bot hanya jalan di Time Frame M1/M5 untuk entry, tapi wajib cek TF H4/Daily
+untuk konfirmasi tren. Ini adalah logika sinyal masuk.
+
+--- 3A. PENENTUAN TREN UTAMA (Higher Time Frame - H4/Daily) ---
+
+Data yang digunakan:
+  - OHLCV dari API untuk TF 4 Jam atau Daily (user pilih di config)
+
+Indikator:
+  - EMA 50 (Fast) dan EMA 200 (Slow) pada TF tinggi
+  - Parameter EMA bisa diatur di config (ema_fast, ema_slow)
+
+Logika Tren:
+  UPTREND:
+    - Harga Close di ATAS EMA 50
+    - DAN EMA 50 di ATAS EMA 200
+    - DAN slope EMA 50 > 0 (naik)
+
+  DOWNTREND:
+    - Harga Close di BAWAH EMA 50
+    - DAN EMA 50 di BAWAH EMA 200
+    - DAN slope EMA 50 < 0 (turun)
+
+  NEUTRAL:
+    - Selain kondisi Uptrend atau Downtrend
+
+--- 3B. DETEKSI DIVERGENSI (Lower Time Frame - M1/M5) ---
+
+Data yang digunakan:
+  - OHLCV dari API untuk TF M1 atau M5 (user pilih di config)
+
+Indikator untuk deteksi divergensi (user pilih di config):
+  - RSI (Relative Strength Index) - periode 14 (default)
+  - MACD (Moving Average Convergence Divergence) - 12, 26, 9
+
+Bullish Divergence (Sinyal BUY):
+  - Harga membentuk Lower Low (LL) yang lebih rendah dari LL sebelumnya
+  - Namun, nilai RSI/MACD membentuk Higher Low (HL) yang lebih tinggi dari HL sebelumnya
+  - Ini tandanya momentum bearish melemah
+
+Bearish Divergence (Sinyal SELL):
+  - Harga membentuk Higher High (HH) yang lebih tinggi dari HH sebelumnya
+  - Namun, nilai RSI/MACD membentuk Lower High (LH) yang lebih rendah dari LH sebelumnya
+  - Ini tandanya momentum bullish melemah
+
+Lookback window: 30 candle terakhir (atau sisa data jika kurang)
+Minimal data yang dibutuhkan: 50 candle
+Minimal data untuk validasi: 10 candle sebelum titik referensi
+
+--- 3C. LOGIKA ENTRY (GABUNGAN A + B) ---
+
+Sinyal BUY akan dieksekusi JIKA:
+  - Tren Utama di H4/Daily adalah UPTREND
+  - DAN terjadi Bullish Divergence di M1/M5
+
+Sinyal SELL akan dieksekusi JIKA:
+  - Tren Utama di H4/Daily adalah DOWNTREND
+  - DAN terjadi Bearish Divergence di M1/M5
+
+Filter False Bar:
+  - Karena data tick di exchange kadang loncat
+  - Jika terjadi divergensi tapi candle terakhir adalah Doji atau Hammer
+    dengan badan sangat kecil (< 0.1% dari range candle), maka:
+  - Sinyal di-PENDING (tunggu candle berikutnya konfirmasi)
+  - Threshold bisa diatur di config (doji_threshold, default 0.001)
+
+--- 3D. MANAJEMEN POSISI ---
+
+DILARANG KERAS menggunakan strategi Grid atau Martingale:
+  - Tidak boleh ada pembukaan posisi baru untuk melawan arah yang merugikan
+  - Bot tidak akan membuka posisi baru jika posisi sedang floating loss
+
+Pyramiding (Penambahan Posisi):
+  - Hanya diizinkan menambah posisi SEARAH dengan posisi awal
+  - Hanya jika harga bergerak minimal 1% (atau sesuai setting user) mendukung posisi
+  - Maksimal penambahan posisi: 2 kali (total 3 posisi per siklus)
+  - Trigger persentase bisa diatur di config (pyramiding_trigger_percent)
+
+Stop Loss (Hard SL):
+  - Setiap order WAJIB menyertakan hard Stop Loss
+  - Mode: hidden (tidak dikirim ke exchange, di-monitor oleh bot)
+  - Perhitungan SL berdasarkan ATR (Average True Range):
+    SL Distance = ATR (periode 14) × 1.5 (atau setting manual user)
+  - SL Period dan ATR Multiplier bisa diatur di config
+
+Take Profit (TP):
+  - Minimal R:R ratio 2:1 dari risiko SL
+  - Artinya: TP Distance = SL Distance × 2
+  - R:R Ratio bisa diatur di config (min_rr_ratio)
+
+Perhitungan SL/TP:
+  - BUY:  SL = Entry - (ATR × multiplier), TP = Entry + (risk × R:R)
+  - SELL: SL = Entry + (ATR × multiplier), TP = Entry - (risk × R:R)
+
+================================================================================
+4. MODE TRADING (3 MODE)
+================================================================================
+
+Bot harus punya 3 mode yang bisa diubah kapan saja lewat config.json atau
+command console (dropdown di dashboard GUI).
+
+Mode BUY ONLY (Hanya Beli):
+  - Hanya mengeksekusi sinyal BUY
+  - Rekomendasi dipakai saat pasar naik (Strong Uptrend)
+  - Resiko = Tinggi
+
+Mode SELL ONLY (Hanya Jual):
+  - Hanya mengeksekusi sinyal SELL
+  - Rekomendasi dipakai saat pasar turun (Strong Downtrend)
+  - Resiko = Tinggi
+
+Mode BUY & SELL (Netral):
+  - Mengeksekusi sinyal BUY dan SELL sesuai aturan strategi
+  - Rekomendasi dipakai saat pasar sideways/berombak
+  - Resiko = Normal
+
+Cara mengubah mode:
+  - Via GUI: Dropdown di dashboard, klik Apply
+  - Via config.json: Ubah nilai "trading_mode"
+  - Via Settings tab: Save Settings
+
+================================================================================
+5. DAILY DRAWDOWN LIMIT (PEMBATAS KERUGIAN HARIAN)
+================================================================================
+
+Ini adalah fitur safety paling krusial. Logikanya harus rigid.
+
+Parameter di config.json:
+  "daily_drawdown": {
+    "enabled": true,
+    "max_loss_percent": 5,
+    "max_loss_idr": 500000,
+    "reset_time": "00:00"
+  }
+
+  enabled          : Aktifkan/nonaktifkan fitur ini
+  max_loss_percent : Batas loss dalam persen dari total ekuitas
+  max_loss_idr     : Batas loss dalam Rupiah (prioritaskan yang lebih kecil
+                     jika keduanya terisi)
+  reset_time       : Jam reset harian (format 24 jam, misal 00:00 atau 07:00)
+
+Perhitungan Loss Harian:
+  Total_Loss_Hari_Ini = Realized_Loss_hari_ini + Floating_Loss_posisi_terbuka
+
+  - Realized Loss: jumlah kerugian dari posisi yang sudah ditutup hari ini
+  - Floating Loss: selisih harga entry vs harga pasar saat ini untuk posisi terbuka
+  - Floating loss harus dihitung dari harga pasar dikurangi harga entry
+
+Logika Auto-Stop (cek setiap 5 detik):
+  Jika Total_Loss_Hari_Ini >= max_loss_idr (atau ekuitas turun > max_loss_percent):
+
+  1. Bot langsung membatalkan semua order pending (cancel all open orders)
+  2. Bot langsung Market Close semua posisi terbuka (force close all)
+  3. Status bot berubah menjadi "PAUSED / STOPPED"
+  4. Kirim notifikasi darurat ke Telegram:
+     "DAILY DRAWDOWN TERCAPAI! Total Loss: Rp X. Bot di-stop otomatis."
+  5. Bot menolak semua sinyal baru
+  6. Bot hanya bisa dijalankan lagi secara manual (restart atau ubah config)
+
+Logika Reset Harian:
+  - Setiap detik, bot cek jam sistem
+  - Jika jam mencapai reset_time (misal 00:00), maka:
+    * Counter Total_Loss_Hari_Ini di-reset menjadi 0
+    * Status bot otomatis berubah menjadi "READY" (jika sebelumnya paused)
+
+Warning Sebelum Limit:
+  - Jika total loss mencapai 80% dari batas, kirim warning ke Telegram
+
+================================================================================
+6. MANAJEMEN MODAL (AUTO LOT)
+================================================================================
+
+Auto Lot Balance:
+  - User menentukan nilai ekuitas per 1 unit lot di config
+  - Normal: "auto_lot_balance": 10000000
+    Artinya setiap Rp 10.000.000, bot akan trade sebesar 0.001 BTC atau setara
+
+Rumus Lot:
+  Lot = (Saldo_Rupiah_Tersedia / auto_lot_balance) × 0.001
+
+  Contoh:
+    Saldo IDR: Rp 50.000.000
+    auto_lot_balance: 10.000.000
+    Lot = (50.000.000 / 10.000.000) × 0.001 = 0.005 unit coin
+
+High Risk Mode:
+  - Jika user mengubah "risk_multiplier": 10
+  - Maka Lot = (Saldo / auto_lot_balance) × 0.001 × risk_multiplier
+  - Ini untuk kondisi trending kuat
+
+Parameter:
+  - auto_lot_balance   : Nilai ekuitas dasar per lot (default: 10000000)
+  - risk_multiplier    : Pengali risiko (default: 1, max disarankan: 10)
+
+================================================================================
+7. PORTABILITY & BUILD
+================================================================================
+
+Struktur Kode:
+  Gunakan Python murni dengan struktur proyek yang rapi:
+    main.py              - Entry point dengan GUI
+    core/                - Modul inti
+      exchange.py        - Integrasi API exchange
+      strategy.py        - Indikator + logika sinyal
+      risk_manager.py    - Manajemen risiko + drawdown
+      backtester.py      - Mesin backtesting
+    utils/               - Utilitas
+      logger.py          - Sistem logging
+      telegram_bot.py    - Notifikasi Telegram
+    config.json          - Semua pengaturan
+
+Config External:
+  - Semua setting wajib berada di file config.json
+  - Terletak di folder yang sama persis dengan file executable
+  - Bot harus bisa membaca dan menulis ulang status ke file ini
+
+Database:
+  - Gunakan SQLite (trades.db) untuk menyimpan:
+    * History order (symbol, side, quantity, price, PnL, timestamp)
+    * Daily PnL (realized loss, floating loss, total loss per hari)
+    * Log aktivitas trading
+
+Build ke .exe:
+  Perintah:
+    python -m PyInstaller --onefile --add-data "config.json;." --name KAMSIADI_TradingBot main.py
+
+  Output:
+    dist/KAMSIADI_TradingBot.exe (1 file portable, ~100MB)
+
+  Config Auto-Extract:
+    - Saat pertama kali dijalankan, config.json di-extract dari dalam exe
+    - User tinggal edit config.json yang sudah di-extract
+    - Tidak perlu copy config secara manual
+
+File requirements.txt:
+  requests>=2.28.0
+  pandas>=1.5.0
+  numpy>=1.23.0
+
+================================================================================
+8. BACKTESTING
+================================================================================
+
+Cara menjalankan:
+  KAMSIADI_TradingBot.exe --backtest
+  atau
+  python main.py --backtest
+
+Yang dilakukan saat backtest:
+  1. Mengunduh data historis dari exchange (atau membaca file CSV lokal)
+     untuk periode 5 tahun terakhir (maks 500 candle per timeframe)
+  2. Menjalankan logika strategi di atas data historis
+  3. Menghitung performa keseluruhan
+  4. Menampilkan hasil di console
+
+Metrik yang dihitung:
+
+  Total Profit:
+    Laba bersih keseluruhan dalam Rupiah.
+    = Modal Akhir - Modal Awal
+
+  ROI (Return on Investment):
+    Persentase keuntungan dari modal awal.
+    = (Total Profit / Modal Awal) × 100%
+
+  Win Rate:
+    Persentase trade yang menghasilkan profit.
+    = (Winning Trades / Total Trades) × 100%
+
+  Max Drawdown:
+    Penurunan maksimum dari peak equity ke titik terendah.
+    Dihitung sebagai persentase dari peak.
+
+  Sharpe Ratio:
+    Risk-adjusted return. Mengukur return per unit risiko.
+    Lebih tinggi = lebih baik. Normal > 1, Baik > 2.
+
+  Profit Factor:
+    Rasio total profit dari winning trades vs total loss dari losing trades.
+    > 1 berarti profitable.
+
+  Average Win/Loss:
+    Rata-rata besar profit per winning trade dan loss per losing trade.
+
+Riwayat Trade:
+  Menampilkan 20 trade terakhir beserta:
+    - Direction (BUY/SELL)
+    - Entry Price
+    - Exit Price
+    - PnL per trade
+
+================================================================================
+9. NOTIFIKASI TELEGRAM
+================================================================================
+
+Setup:
+  1. Buat bot Telegram via @BotFather, dapatkan token
+  2. Dapatkan chat_id (personal atau grup)
+  3. Isi di config.json:
+     "telegram": {
+       "enabled": true,
+       "token": "YOUR_BOT_TOKEN",
+       "chat_id": "YOUR_CHAT_ID",
+       "receive_commands": true
+     }
+
+Event yang wajib dikirim:
+
+  Bot Start:
+    "Bot Started and Ready to Trade"
+
+  Bot Stop:
+    "Bot Stopped"
+
+  Entry Signal (BUY/SELL):
+    Direction, Symbol, Price, Lot
+    Format: "Entry Signal - Direction: BUY, Symbol: btc_idr, Price: Rp 500M, Lot: 0.001"
+
+  Exit Signal (Close posisi):
+    Symbol, Entry Price, Exit Price, Status (PROFIT/LOSS), PnL
+    Format: "Position Closed - btc_idr, Entry: Rp 500M, Exit: Rp 510M, PROFIT, PnL: Rp 10M"
+
+  Drawdown Warning:
+    Current Loss, Max Loss, Persentase Usage
+
+  Drawdown Triggered:
+    Total Loss + "Bot di-stop otomatis"
+
+  Error Koneksi/API:
+    Pesan error lengkap
+
+Semua pesan diawali dengan:
+  "KAMSIADI.Inc Bot"
+
+Perintah Telegram yang bisa diterima:
+
+  /status:
+    Menampilkan posisi terbuka dan saldo saat ini
+
+Format pesan Telegram pakai Markdown:
+  Bold: *text*
+  Emoji: untuk indikator visual
+
+================================================================================
+10. BRANDING & IDENTITAS
+================================================================================
+
+Nama Resmi Bot:
+  "Private Trading Bot KAMSIADI.Inc"
+
+Implementasi Nama:
+
+  Header Booting (Console/GUI):
+    ==========================================
+    |  PRIVATE TRADING BOT KAMSIADI.Inc      |
+    |  Version 1.0.0                         |
+    |  Status: [READY / RUNNING / PAUSED]   |
+    ==========================================
+
+  File Log:
+    Setiap baris log diawali dengan header [KAMSIADI.Inc]
+    Contoh: [KAMSIADI.Inc][INFO] 2025-07-11 10:00:01 - Bot Started
+    Format: [KAMSIADI.Inc][LEVEL] TIMESTAMP - PESAN
+
+  Telegram:
+    Setiap pesan notifikasi diawali dengan:
+    "KAMSIADI.Inc Bot"
+
+  Status Bot:
+    READY    - Bot siap menerima sinyal
+    RUNNING  - Bot aktif menjalankan strategi
+    PAUSED   - Bot berhenti karena drawdown limit atau manual stop
+
+================================================================================
+11. ANTARMUKA GRAFIS (GUI Tkinter)
+================================================================================
+
+Framework: Tkinter (bawaan Python, tidak perlu install tambahan)
+Ukuran: 900×700 pixels (resizable, minimum 800×600)
+Tema: Dark theme (#1e1e1e background, #00ff00 hijau untuk teks aktif)
+
+--- TAB 1: DASHBOARD ---
+
+Header Frame:
+  - Judul: "PRIVATE TRADING BOT KAMSIADI.Inc | v1.0.0"
+  - Status Koneksi: indikator lampu
+    * Hijau = Connected
+    * Merah = Disconnected
+
+Info Frame:
+  - Saldo Real-Time:
+    * IDR: Rp X.XXX.XXX
+    * BTC: X.XXXXXX | ETH: X.XXXXXX
+    * Update otomatis setiap 60 detik
+  - Mode Aktif:
+    * Label dengan warna latar berbeda:
+      - BUY ONLY = Hijau (#00aa00)
+      - SELL ONLY = Merah (#aa0000)
+      - BUY & SELL = Abu (#666666)
+  - Daily Drawdown:
+    * Bar progress + angka Rp X / Rp Y
+    * Warna berubah:
+      - Hijau jika < 60%
+      - Orange/Kuning jika 60-80%
+      - Merah jika > 80%
+
+Log Frame:
+  - Scrollable Text Box (ScrolledText)
+  - Menampilkan aktivitas bot secara real-time
+  - Warna: teks hijau (#00ff00) di atas background gelap (#1e1e1e)
+  - Auto-scroll ke bawah
+  - Auto-truncate jika melebihi 1000 baris (configurable)
+  - Tombol "Clear Log" untuk membersihkan tampilan
+    (tanpa menghapus file log di folder logs/)
+
+Control Frame:
+  - Tombol START BOT (hijau)
+    * Memulai/mengaktifkan eksekusi strategi
+    * Berjalan di background thread
+  - Tombol STOP BOT (merah)
+    * Menghentikan semua eksekusi
+    * Posisi tetap terbuka kecuali checkbox "Force Close" dicentang
+  - Tombol REFRESH (biru)
+    * Rescan pair + update saldo secara manual
+  - Tombol EXIT (abu)
+    * Menutup aplikasi dengan konfirmasi pop-up "Yakin mau keluar?"
+  - Checkbox "Force Close All on Stop"
+    * Jika dicentang, semua posisi di-close saat STOP diklik
+  - Quick Mode Switch:
+    * Dropdown mode + tombol Apply untuk switch cepat
+
+--- TAB 2: SETTINGS ---
+
+Scrollable settings panel dengan sections:
+
+Section: Exchange
+  - Exchange Name: dropdown (indodax / tokocrypto)
+  - API Key: text input
+  - API Secret: text input (password field)
+
+Section: Timeframe
+  - Entry TF: dropdown (M1, M5, M15, M30)
+  - Trend TF: dropdown (H1, H4, D1)
+
+Section: Strategy
+  - EMA Fast: number input (default: 50)
+  - EMA Slow: number input (default: 200)
+  - RSI Period: number input (default: 14)
+  - Divergence Indicator: dropdown (RSI / MACD)
+  - Doji Threshold: decimal input (default: 0.001)
+
+Section: Risk Management
+  - Auto Lot Balance (IDR): number input (default: 10000000)
+  - Risk Multiplier: decimal input (default: 1)
+  - ATR Period: number input (default: 14)
+  - ATR Multiplier: decimal input (default: 1.5)
+  - Min R:R Ratio: decimal input (default: 2.0)
+  - Max Positions: number input (default: 3)
+  - Pyramiding Trigger %: decimal input (default: 1.0)
+
+Section: Daily Drawdown
+  - Enable Drawdown Limit: checkbox (default: checked)
+  - Max Loss %: decimal input (default: 5)
+  - Max Loss IDR: number input (default: 500000)
+  - Reset Time (HH:MM): text input (default: 00:00)
+
+Section: Telegram
+  - Enable Telegram: checkbox (default: unchecked)
+  - Bot Token: text input
+  - Chat ID: text input
+  - Receive Commands: checkbox (default: checked)
+
+Section: Trading Pairs
+  - Pairs (comma separated): text input (contoh: btc_idr, eth_idr)
+  - Catatan: "Kosongkan = otomatis semua pair IDR"
+
+Tombol:
+  - SAVE SETTINGS (hijau): Simpan semua pengaturan ke config.json + reload
+  - RESET DEFAULT (orange): Kembalikan semua field ke nilai default
+
+--- MULTI-THREADING ---
+
+  Proses trading (loop sinyal, scan, eksekusi) HARUS berjalan di Thread
+  terpisah (background thread), BUKAN di main thread.
+
+  Tujuannya: biar GUI nggak freeze / not responding saat bot sedang sibuk
+  menghitung indikator atau request ke API.
+
+  Saat tombol START diklik:
+    - Jalankan background thread (daemon thread)
+    - Disable tombol START, Enable tombol STOP
+    - Status label berubah "Running"
+
+  Saat tombol STOP diklik:
+    - Set threading.Event() untuk memberi sinyal stop ke thread
+    - Tunggu thread selesai dengan aman
+    - Enable tombol START, Disable tombol STOP
+    - Status label berubah "Stopped"
+    - Jika checkbox Force Close dicentang, close semua posisi dulu
+
+--- FIRST RUN ---
+
+  Saat pertama kali exe dijalankan (config.json belum ada):
+    1. Config di-extract dari bundle PyInstaller ke folder exe
+    2. Pop-up info: "Config file has been created. Edit this file to set
+       your API keys and settings. Then restart the bot."
+    3. User edit config.json, lalu restart bot
+
+================================================================================
+12. FILE YANG DIHASILKAN SAAT JALAN
+================================================================================
+
+config.json
+  Konfigurasi utama bot. Auto-extract dari exe saat first run.
+  Bisa diedit manual atau via GUI Settings tab.
+
+trades.db
+  Database SQLite untuk menyimpan:
+    - Tabel "trades": history order (id, symbol, side, quantity, price,
+      total_idr, timestamp, status, realized_pnl)
+    - Tabel "daily_pnl": ringkasan PnL harian (date, realized_loss,
+      floating_loss, total_loss, trades_count)
+
+logs/bot_YYYY-MM-DD.log
+  Log harian dengan format:
+    [KAMSIADI.Inc][INFO] 2025-07-11 10:00:01 - Pesan log
+  Level: INFO, WARNING, ERROR, DEBUG, CRITICAL, TRADE
+
+error.log
+  Error log untuk debugging. Berisi:
+    - Starting bot dari path mana
+    - Status frozen (True/False)
+    - MEIPASS path (untuk debug PyInstaller)
+    - Traceback jika ada crash
+
+================================================================================
+13. DEPENDENCIES
+================================================================================
+
+Library yang dibutuhkan:
+  requests>=2.28.0    - HTTP requests untuk API exchange dan Telegram
+  pandas>=1.5.0       - Manipulasi data (rolling mean untuk EMA, RSI, ATR)
+  numpy>=1.23.0       - Komputasi numerik (perhitungan indikator)
+
+Library standar Python (tidak perlu install):
+  tkinter             - GUI framework
+  threading           - Multi-threading untuk background trading
+  json                - Parsing config.json
+  sqlite3             - Database untuk trade history
+  hashlib/hmac        - Autentikasi API exchange
+  time/datetime       - Timestamp dan scheduling
+  os/sys              - Path resolution dan PyInstaller support
+  shutil              - Copy config dari bundle
+
+Semua library sudah di-bundle ke dalam .exe saat build dengan PyInstaller.
+
+================================================================================
+14. CARA PENGGUNAAN
+================================================================================
+
+INSTALASI:
+  1. Download KAMSIADI_TradingBot.exe
+  2. Copy ke folder yang diinginkan (portable, bisa dijalankan dari mana saja)
+  3. Jalankan exe -> config.json otomatis dibuat di folder yang sama
+
+KONFIGURASI PERTAMA:
+  1. Buka config.json dengan text editor
+  2. Isi exchange.name: "indodax" atau "tokocrypto"
+  3. Isi exchange.api_key dan exchange.api_secret
+  4. Atur trading_pairs (kosongkan untuk auto scan semua pair IDR)
+  5. Atur daily_drawdown sesuai kebutuhan
+  6. Simpan file
+
+MENJALANKAN BOT:
+  1. Double-click KAMSIADI_TradingBot.exe
+  2. GUI akan terbuka dengan 2 tab (Dashboard dan Settings)
+  3. Cek status koneksi di pojok kanan atas
+  4. Klik tombol START BOT untuk memulai trading
+
+MENGGUNAKAN SETTINGS TAB:
+  1. Klik tab "Settings" di GUI
+  2. Ubah pengaturan yang diinginkan
+  3. Klik "SAVE SETTINGS" untuk menyimpan
+  4. Konfigurasi langsung diterapkan tanpa restart
+
+MODE TRADING:
+  - BUY ONLY: Untuk pasar naik (tren kuat naik)
+  - SELL ONLY: Untuk pasar turun (tren kuat turun)
+  - BUY & SELL: Untuk pasar sideways/berombak
+
+BACKTESTING:
+  KAMSIADI_TradingBot.exe --backtest
+  atau
+  python main.py --backtest
+
+TELEGRAM:
+  1. Buat bot via @BotFather
+  2. Isi token dan chat_id di Settings tab atau config.json
+  3. Enable Telegram di Settings
+  4. Bot akan mengirim notifikasi untuk semua event trading
+
+STOPPING BOT:
+  1. Klik tombol STOP BOT
+  2. Jika checkbox "Force Close" dicentang, semua posisi akan di-close
+  3. Jika tidak, posisi tetap terbuka (hanya sinyal baru yang dihentikan)
+
+TROUBLESHOOTING:
+  - Jika bot tidak bisa connect: cek API Key dan Secret di config
+  - Jika GUI freeze: tidak seharusnya terjadi (sudah pakai multi-thread)
+  - Jika exe crash: cek file error.log di folder yang sama dengan exe
+  - Jika config error: hapus config.json, jalankan exe lagi untuk auto-extract
+
+================================================================================
+                    PRIVATE TRADING BOT KAMSIADI.Inc v1.0.0
+                         DOKUMENTASI SELESAI
+================================================================================
