@@ -1,0 +1,44 @@
+==============================================
+  BUILD INSTRUCTIONS - KAMSIADI Trading Bot
+==============================================
+
+1. INSTALL DEPENDENCIES:
+   pip install -r requirements.txt
+   pip install pyinstaller
+
+2. BUILD EXECUTABLE (OPTION A - Simple):
+   pyinstaller --onefile --add-data "config.json;." main.py
+
+3. BUILD EXECUTABLE (OPTION B - Using Spec File):
+   pyinstaller build.spec
+
+4. OUTPUT:
+   - The executable will be in: dist/KAMSIADI_TradingBot.exe
+   - Copy config.json to the same folder as the .exe
+
+5. RUN:
+   - Double-click KAMSIADI_TradingBot.exe
+   - Or run from command prompt: KAMSIADI_TradingBot.exe
+
+6. BACKTEST MODE:
+   - Run: KAMSIADI_TradingBot.exe --backtest
+
+7. CONFIGURATION:
+   - Edit config.json to set your API keys and trading settings
+   - Exchange: indodax or tokocrypto
+   - Trading mode: BUY ONLY, SELL ONLY, or BUY & SELL
+   - Daily drawdown limit in config
+
+8. FILES INCLUDED:
+   - config.json (trading configuration)
+   - trades.db (auto-created for trade history)
+   - logs/ folder (auto-created for log files)
+
+9. REQUIREMENTS:
+   - Windows 10 or later
+   - Internet connection
+   - API Key with Trade and Read permissions (NO WITHDRAW)
+
+==============================================
+  KAMSIADI.Inc - Private Trading Bot v1.0.0
+==============================================
