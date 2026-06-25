@@ -1,0 +1,111 @@
+{
+  "exchange": {
+    "name": "indodax",
+    "api_key": "",
+    "api_secret": ""
+  },
+  "trading_pairs": [],
+  "timeframe": {
+    "entry": "M5",
+    "trend": "H4"
+  },
+  "strategy": {
+    "ema_fast": 50,
+    "ema_slow": 200,
+    "rsi_period": 14,
+    "divergence_indicator": "RSI",
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "doji_threshold": 0.001,
+    "wait_for_candle_close": false
+  },
+  "risk_management": {
+    "auto_lot_balance": 10000000,
+    "risk_multiplier": 1,
+    "atr_period": 14,
+    "atr_multiplier": 1.5,
+    "min_rr_ratio": 2.0,
+    "max_positions": 3,
+    "pyramiding_trigger_percent": 1.0,
+    "allow_multiple_per_pair": false
+  },
+  "trading_mode": "BUY & SELL",
+  "daily_drawdown": {
+    "enabled": true,
+    "max_loss_percent": 5,
+    "max_loss_idr": 500000,
+    "reset_time": "00:00"
+  },
+  "telegram": {
+    "enabled": false,
+    "token": "",
+    "chat_id": "",
+    "receive_commands": true
+  },
+  "backtest": {
+    "max_candles": 5000
+  },
+  "trading_session": {
+    "enabled": true,
+    "start_time": "08:00",
+    "end_time": "22:00",
+    "timezone": "Asia/Jakarta",
+    "action_outside_session": "pause"
+  },
+  "max_holding_time": {
+    "enabled": true,
+    "max_hours": 24,
+    "action": "market_close",
+    "notification_warning_minutes": 60
+  },
+  "adaptive_strategy": {
+    "enabled": false,
+    "recalculate_on": "every_trade",
+    "balance_tiers": [
+      {
+        "max_balance": 10000000,
+        "risk_percent": 0.5,
+        "trading_mode": "BUY & SELL",
+        "max_positions": 2,
+        "rr_ratio": 2.0,
+        "max_holding_hours": 48,
+        "trading_session_start": "09:00",
+        "trading_session_end": "17:00",
+        "description": "Konservatif - Saldo Kecil"
+      },
+      {
+        "max_balance": 50000000,
+        "risk_percent": 1.0,
+        "trading_mode": "BUY & SELL",
+        "max_positions": 3,
+        "rr_ratio": 2.5,
+        "max_holding_hours": 24,
+        "trading_session_start": "08:00",
+        "trading_session_end": "22:00",
+        "description": "Normal - Saldo Menengah"
+      },
+      {
+        "max_balance": 999999999,
+        "risk_percent": 2.0,
+        "trading_mode": "BUY ONLY",
+        "max_positions": 4,
+        "rr_ratio": 3.0,
+        "max_holding_hours": 12,
+        "trading_session_start": "07:00",
+        "trading_session_end": "23:00",
+        "description": "Agresif - Saldo Besar"
+      }
+    ]
+  },
+  "webhook": {
+    "enabled": false,
+    "port": 5000,
+    "endpoint": "/webhook",
+    "allowed_symbols": ""
+  },
+  "gui": {
+    "update_balance_interval": 60,
+    "log_max_lines": 1000
+  }
+}
