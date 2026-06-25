@@ -18,7 +18,7 @@
     "macd_slow": 26,
     "macd_signal": 9,
     "doji_threshold": 0.001,
-    "wait_for_candle_close": false
+    "wait_for_candle_close": true
   },
   "risk_management": {
     "auto_lot_balance": 10000000,
@@ -38,7 +38,7 @@
     "reset_time": "00:00"
   },
   "telegram": {
-    "enabled": false,
+    "enabled": true,
     "token": "",
     "chat_id": "",
     "receive_commands": true
