@@ -1015,10 +1015,36 @@ class TradingBotGUI:
         if not self.exchange.api_key or not self.exchange.api_secret:
             messagebox.showwarning("Warning", "Please set API Key and Secret in Settings tab first.")
             return
+
+        self.btn_start.config(state=tk.DISABLED, text="Testing...")
+        self.status_label.config(text="Testing...", fg='#ffaa00')
+        self.root.update()
+
+        def do_connect_test():
+            try:
+                result = self.exchange.test_connection()
+                if result.get("overall_status") != "CONNECTED":
+                    error_msg = "Connection failed!\n\n"
+                    error_msg += f"Public: {result.get('public', {}).get('message', 'Error')}\n"
+                    error_msg += f"Private: {result.get('private', {}).get('message', 'Error')}"
+                    self.root.after(0, lambda: self._show_connect_fail(error_msg))
+                    return
+                self.root.after(0, self._proceed_start_bot)
+            except Exception as e:
+                self.root.after(0, lambda: self._show_connect_fail(str(e)))
+
+        threading.Thread(target=do_connect_test, daemon=True).start()
+
+    def _show_connect_fail(self, msg):
+        self.btn_start.config(state=tk.NORMAL, text="START BOT")
+        self.status_label.config(text="Disconnected", fg='#ff0000')
+        messagebox.showerror("Connection Failed", msg)
+
+    def _proceed_start_bot(self):
         self.bot_running = True
         self.stop_event.clear()
         self.warned_holdings.clear()
-        self.btn_start.config(state=tk.DISABLED)
+        self.btn_start.config(state=tk.DISABLED, text="START BOT")
         self.btn_stop.config(state=tk.NORMAL)
         self.status_label.config(text="Running", fg='#00ff00')
         self.telegram.send_bot_start()
@@ -1107,6 +1133,9 @@ class TradingBotGUI:
         self.telegram.send_message(f"*KAMSIADI.Inc Bot*\n\n*Force Close Summary*\n{summary}")
 
     def trading_loop(self):
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+
         while self.bot_running and not self.stop_event.is_set():
             try:
                 if not self.time_manager.is_within_session():
@@ -1141,7 +1170,7 @@ class TradingBotGUI:
                     continue
 
                 if self.adaptive.enabled:
-                    idr = self.exchange.get_idr_balance()
+                    idr = self.exchange.get_idr_balance() if not self.paper_mode else self.paper_engine.get_balance()
                     result = self.adaptive.get_strategy_for_balance(idr)
                     if result and result.get('changed'):
                         self.adaptive.apply_tier(self.config, result['tier'])
@@ -1159,9 +1188,18 @@ class TradingBotGUI:
                         self.execute_signal(pair, signal)
                     time.sleep(1)
 
+                consecutive_errors = 0
                 time.sleep(5)
             except Exception as e:
-                self.append_log(f"Error in trading loop: {e}")
+                consecutive_errors += 1
+                self.append_log(f"Error in trading loop ({consecutive_errors}/{max_consecutive_errors}): {e}")
+
+                if consecutive_errors >= max_consecutive_errors:
+                    self.append_log("[CRITICAL] Too many consecutive errors! Bot auto-stopped.")
+                    self.telegram.send_message("*KAMSIADI.Inc Bot*\n\nBot STOPPED: Too many consecutive API errors.")
+                    self.stop_bot()
+                    return
+
                 time.sleep(30)
 
     def check_signal(self, pair):
